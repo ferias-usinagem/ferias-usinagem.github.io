@@ -237,7 +237,7 @@ tr.grupo td .gt{position:sticky;left:10px;display:inline-flex;align-items:center
 .plan thead th.sem{font-size:10.5px;color:var(--azul-tx);letter-spacing:.02em} .plan thead th.sem.imp{background:var(--semimp-cab)} .plan thead th.sem.par{background:var(--sempar-cab);color:var(--warn-tx)}
 .plan thead th.sem span{font-weight:500} .plan thead th.sem .pc{display:none}
 .plan thead tr.r2 th{font-weight:700;color:var(--txt)} .plan thead th.fs{color:var(--bad)} .plan thead th.col{background:var(--colbg)}
-.plan thead th.hj{background:var(--claro)!important;color:#fff!important}
+.plan thead th.fer{color:var(--bad);text-decoration:underline dotted;text-underline-offset:2px} .plan thead th.hj{background:var(--claro)!important;color:#fff!important}
 .plan th.nome,.plan td.nome{text-align:left;padding:0 8px;font-size:10.5px;color:var(--mut);text-transform:uppercase;letter-spacing:.04em}
 .plan td.nome{text-transform:none;letter-spacing:0;color:var(--txt);font-size:12px;cursor:pointer;display:table-cell}
 .plan td.nome .pt{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:6px;vertical-align:middle}
@@ -365,10 +365,147 @@ if (D) SUGS = (D.sugestoes || []).filter(function (x) { return x && x.ini && x.f
 try { if (localStorage.getItem('calFeriasSug') === '0') incSug = false; } catch (e) {}
 function aplicarSug() { if (D) D.ferias = incSug && SUGS.length ? REAIS.concat(SUGS) : REAIS.slice(); }
 aplicarSug();
+// calendário da fábrica (v2.13): feriados, pontes, revezamento e volta prevista pela escala do turno
+var FAB = criarFabrica(D || {});
 function comSug() { return incSug && SUGS.length > 0; }
 function rotSug() { return D && D.privado ? 'Sugestão do líder' : 'Sugestão: converse com seu líder'; }
 var mh = /^#(\d{4})-(\d{2})$/.exec(location.hash || ''); if (mh) { ano = +mh[1]; mes = +mh[2] - 1; if (vista === 'hoje') vista = 'mes'; }
 
+// <fabrica> calendário da fábrica (v2.13): feriados, pontes, revezamento A/B, início das férias (CLT) e retorno previsto.
+// FONTE ÚNICA: gas/fabrica.js. O mesmo bloco vai copiado no Codigo.gs, no Calendario.html e no portal
+// (scripts_internos/sincronizar_fabrica.js). Não edite as cópias: edite aqui e rode o script.
+// D = dados no formato do calendário: pessoas, ferias, trocas, turnos, regras, feriados, horarios.
+function criarFabrica(D) {
+  D = D || {};
+  var FER = {}, DSEMF = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'];
+  (D.feriados || []).forEach(function (f) { if (f && f.d) (FER[f.d] = FER[f.d] || []).push(f); });
+  function pad(n) { return (n < 10 ? '0' : '') + n; }
+  function ms(s) { return Date.UTC(+s.slice(0, 4), +s.slice(5, 7) - 1, +s.slice(8, 10)); }
+  function soma(s, n) { var x = new Date(ms(s) + n * 864e5); return x.getUTCFullYear() + '-' + pad(x.getUTCMonth() + 1) + '-' + pad(x.getUTCDate()); }
+  function wd(s) { return new Date(ms(s)).getUTCDay(); }
+  function dm(s) { return s ? s.slice(8, 10) + '/' + s.slice(5, 7) : ''; }
+  function dia(s) { return DSEMF[wd(s)] + ', ' + dm(s); }
+  function semAc(s) { return String(s == null ? '' : s).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim(); }
+  function vale(r, s) { return (!r.de || r.de <= s) && (!r.ate || r.ate >= s); }
+  // regra vigente no dia (se houver várias, a de vigência mais recente)
+  function regra(re, s) { var x = (D.regras || []).filter(function (r) { return re.test(semAc(r.regra)) && vale(r, s); }); x.sort(function (a, b) { return String(a.de || '') < String(b.de || '') ? -1 : 1; }); return x[x.length - 1]; }
+  function turnoDe(p, s) { var t = (D.trocas || []).filter(function (x) { return x.p === p && x.de <= s && x.ate >= s; })[0]; return t ? t.turno : ((D.pessoas || [])[p] || {}).turno || ''; }
+  function infoTurno(t, s) { var x = (D.turnos || []).filter(function (y) { return semAc(y.turno) === semAc(t); }); return x.filter(function (y) { return vale(y, s); })[0] || x[0] || null; }
+  function domingo(s) { return soma(s, -wd(s)); }
+  // posto na fábrica (como no calendário da KSB): 'adm', '1' (manhã), '2' (tarde), '3' (noite) ou '' (não sei)
+  function normPosto(v) { v = semAc(v); return /adm/.test(v) ? 'adm' : /^1|manh/.test(v) ? '1' : /^2|tard/.test(v) ? '2' : /^3|noit/.test(v) ? '3' : /revez/.test(v) ? 'rev' : ''; }
+  function posto(p, s) {
+    var t = turnoDe(p, s); if (!t) return '';
+    var it = infoTurno(t, s), f = normPosto(it && it.fab);
+    if (!f) f = /adm/i.test(t) ? 'adm' : /^c$/i.test(t) ? '3' : it && /revez/i.test(it.tipo || '') ? 'rev' : '';
+    if (f !== 'rev') return f;
+    // revezados: a regra diz qual turno fica na tarde na semana da data de referência; alterna toda semana (domingo a sábado)
+    // vale também antes da data de referência (a mais antiga), para ler o passado do mesmo jeito
+    var rs = (D.regras || []).filter(function (x) { return /revezamento/.test(semAc(x.regra)) && x.de; }).sort(function (a, b) { return a.de < b.de ? -1 : 1; });
+    var r = rs.filter(function (x) { return x.de <= s && (!x.ate || x.ate >= s); }).pop() || rs[0]; if (!r) return '';
+    var k = Math.round((ms(domingo(s)) - ms(domingo(r.de))) / 6048e5), par = ((k % 2) + 2) % 2 === 0;
+    return (semAc(r.valor) === semAc(t)) === par ? '2' : '1';
+  }
+  function nomePosto(x) { return x === 'adm' ? 'Adm' : x ? x + 'º turno' : 'turno'; }
+  function tipoF(f) { var t = semAc(f.tipo); return /trabalh/.test(t) ? 'trab' : /ponte|prolong/.test(t) ? 'ponte' : 'feriado'; }
+  // quem folga: "Todos" ou lista (Adm, 1º, 2º, 3º). Vazio = todos (feriado/ponte) ou ninguém (feriado trabalhado)
+  function folgaPara(f, px) {
+    var q = semAc(f.quem); if (!q) return tipoF(f) !== 'trab';
+    if (/todos/.test(q)) return true; if (!px) return false;
+    return q.split(/[,;\/e]+|\s+/).map(normPosto).filter(Boolean).indexOf(px) >= 0;
+  }
+  // sem saber o posto (pessoa sem turno, revezamento não configurado): qualquer folga do dia conta (lado seguro)
+  function folga(p, s) { var px = p == null ? '' : posto(p, s); return (FER[s] || []).filter(function (f) { return px ? folgaPara(f, px) : tipoF(f) !== 'trab' || /todos/.test(semAc(f.quem)); })[0] || null; }
+  // feriado (para a regra da CLT): feriado ou, se a regra mandar, feriado trabalhado. Ponte não é feriado
+  function feriado(s) {
+    var r = regra(/feriado trabalhado conta/, s), trabConta = !r || !/^n/.test(semAc(r.valor));
+    return (FER[s] || []).filter(function (f) { var t = tipoF(f); return t === 'feriado' || (t === 'trab' && trabConta); })[0] || null;
+  }
+  // horários (aba Horários): dias da semana e horas do posto
+  var DNUM = { dom: 0, seg: 1, ter: 2, qua: 3, qui: 4, sex: 5, sab: 6 };
+  function diasTxt(txt) {
+    var out = {}, re = /(dom|seg|ter|qua|qui|sex|sab)\w*(?:\s*(?:a|-|ate)\s*(dom|seg|ter|qua|qui|sex|sab))?/g, m, t = semAc(txt);
+    while ((m = re.exec(t))) { var a = DNUM[m[1]], b = m[2] ? DNUM[m[2]] : a; for (var i = 0; i < 7; i++) { var d = (a + i) % 7; out[d] = 1; if (d === b) break; } }
+    return out;
+  }
+  function minT(v) { var m = /(\d{1,2}):(\d{2})/.exec(String(v || '')); return m ? +m[1] * 60 + +m[2] : null; }
+  var RE_P = { '1': /manh/, '2': /tard/, '3': /noit/, adm: /adm/ };
+  var PADRAO = { '1': [1, 2, 3, 4, 5, 6], '2': [1, 2, 3, 4, 5], '3': [0, 1, 2, 3, 4, 5], adm: [1, 2, 3, 4, 5], '': [1, 2, 3, 4, 5] };
+  function horariosDe(px, s) { return !RE_P[px] ? [] : (D.horarios || []).filter(function (h) { return RE_P[px].test(semAc(h.nome)) && vale(h, s); }); }
+  function trabalhaSemana(px, w, s) { var hs = horariosDe(px, s); if (!hs.length) return PADRAO[px || ''].indexOf(w) >= 0; return hs.some(function (h) { return diasTxt(h.dias)[w]; }); }
+  function horasDia(px, s) {
+    var w = wd(s), tot = 0;
+    horariosDe(px, s).forEach(function (h) { if (!diasTxt(h.dias)[w]) return; var a = minT(h.ent), b = minT(h.sai); if (a == null || b == null) return; tot += ((b - a + 1440) % 1440) - (Number(h.ref) || 0); });
+    return tot / 60;
+  }
+  function horasSemana(px, s) { var d0 = domingo(s), t = 0; for (var i = 0; i < 7; i++) t += horasDia(px, soma(d0, i)); return t; }
+  // dia de trabalho da pessoa: o posto trabalha nesse dia da semana e não é feriado/ponte de folga para ele
+  function trabalha(p, s) { var px = posto(p, s); return trabalhaSemana(px, wd(s), s) && !folga(p, s); }
+
+  // CLT art. 134 §3: as férias não começam nos 2 dias antes de feriado ou do descanso semanal (domingo).
+  // Regra interna: começam na segunda; se não der, no 1º dia da semana que respeite a CLT e não seja folga do turno
+  function porqueNao(p, d) {
+    var w = wd(d); if (w === 0 || w === 6) return dia(d) + ' é fim de semana';
+    var f = feriado(d); if (f) return dia(d) + ' é feriado (' + f.nome + ')';
+    var g = folga(p, d); if (g) return dia(d) + ' é ' + (tipoF(g) === 'ponte' ? 'ponte' : 'folga') + ' (' + g.nome + ')';
+    for (var k = 1; k <= 2; k++) {
+      var x = soma(d, k), fx = feriado(x);
+      if (fx) return dia(d) + ' fica ' + (k === 1 ? 'a 1 dia' : 'a 2 dias') + ' do feriado ' + fx.nome + ' (' + dm(x) + ') — CLT, art. 134 §3';
+      if (wd(x) === 0) return dia(d) + ' fica a ' + k + (k === 1 ? ' dia' : ' dias') + ' do descanso semanal — CLT, art. 134 §3';
+    }
+    return '';
+  }
+  function inicioCerto(p, s) { var seg = soma(s, -((wd(s) + 6) % 7)); for (var i = 0; i < 5; i++) { var d = soma(seg, i); if (!porqueNao(p, d)) return d; } return ''; }
+  function proxInicio(p, s) { for (var k = 0; k < 6; k++) { var c = inicioCerto(p, soma(s, 7 * k)); if (c && c >= s) return c; } return ''; }
+
+  // estava de férias (no Meu RH) no dia?
+  function deFerias(p, s) { return (D.ferias || []).some(function (f) { return f.p === p && !f.sug && f.ini <= s && f.fim >= s; }); }
+  function trocas(f) { return String(f.troca || '').split(/[,;\s]+/).filter(function (x) { return /^\d{4}-\d{2}-\d{2}$/.test(x); }); }
+  // retorno previsto: dia seguinte ao fim, pulando o que não é dia de trabalho do turno, e empurrado pelos dias marcados
+  // "Soma no retorno" (ex.: vésperas de Natal e Ano Novo já pagas) que caíram nas férias. Se a pessoa estava de férias no dia
+  // em que a véspera foi paga, não pagou: não empurra (pau a pau). Pontes no geral não empurram (dia por dia)
+  function retorno(p, f) {
+    var meuRH = soma(f.fim, 1), extras = [];
+    Object.keys(FER).forEach(function (s) {
+      if (s < f.ini || s > f.fim) return;
+      FER[s].forEach(function (x) {
+        if (!x.soma || !folgaPara(x, posto(p, s)) || !trabalhaSemana(posto(p, s), wd(s), s)) return;
+        if (trocas(x).some(function (t) { return deFerias(p, t); })) return;
+        if (extras.indexOf(s) < 0) extras.push(s);
+      });
+    });
+    extras.sort();
+    var r = meuRH, n = extras.length;
+    for (var i = 0; i < 90; i++) { if (trabalha(p, r)) { if (!n) break; n--; } r = soma(r, 1); }
+    var ate = Object.keys(FER).sort().pop() || '';
+    return { d: r, meuRH: meuRH, extras: extras, semCal: !ate || r > ate };
+  }
+  function retornoTxt(p, f, curto) {
+    var R = retorno(p, f), t = dia(R.d);
+    if (curto) return t;
+    return t + (R.d !== R.meuRH ? ' (Meu RH: ' + dm(R.meuRH) + (R.extras.length ? '; +' + R.extras.map(dm).join(', +') : '') + ')' : '') + (R.semCal ? ' · calendário da fábrica desse ano ainda não cadastrado' : '');
+  }
+  // troca de turno entre a ponte e o dia que a paga: pela regra interna paga as duas vezes, se não passar da carga semanal
+  function pagaDuasVezes(p, desde) {
+    var out = [];
+    Object.keys(FER).forEach(function (s) {
+      FER[s].forEach(function (x) {
+        if (tipoF(x) !== 'ponte' || !semAc(x.quem) || /todos/.test(semAc(x.quem))) return; // "Todos": todo mundo paga no mesmo dia
+        trocas(x).forEach(function (t) {
+          if ((s < desde && t < desde) || deFerias(p, s) || deFerias(p, t)) return;
+          var t1 = turnoDe(p, s), t2 = turnoDe(p, t); if (!t1 || !t2 || semAc(t1) === semAc(t2)) return;
+          if (!folgaPara(x, posto(p, s))) return; // não folgou na ponte: nada a pagar
+          var px = posto(p, t), sem = horasSemana(px, t), extra = horasDia(posto(p, s), t) || horasDia(px, soma(t, 1 - wd(t))), r = regra(/carga horaria semanal/, t), max = r ? Number(String(r.valor).replace(',', '.')) || 0 : 0;
+          out.push({ ponte: s, pago: t, nome: x.nome, de: t1, para: t2, semana: sem, extra: extra, max: max, passa: !!(max && sem + extra > max) });
+        });
+      });
+    });
+    return out.sort(function (a, b) { return a.pago < b.pago ? -1 : 1; });
+  }
+  return { posto: posto, nomePosto: nomePosto, folga: folga, feriado: feriado, trabalha: trabalha, horasDia: horasDia, horasSemana: horasSemana,
+           porqueNao: porqueNao, inicioCerto: inicioCerto, proxInicio: proxInicio, retorno: retorno, retornoTxt: retornoTxt, pagaDuasVezes: pagaDuasVezes };
+}
+// </fabrica>
 function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
 function iso(a, m, d) { return a + '-' + String(m + 1).padStart(2, '0') + '-' + String(d).padStart(2, '0'); }
 function br(s) { return s ? s.slice(8, 10) + '/' + s.slice(5, 7) : ''; }
@@ -644,16 +781,16 @@ function vMes(X) {
   var M = X.M, dia1 = iso(X.a, X.m, 1), info = [], segs = [];
   for (var d = 1; d <= M.nd; d++) {
     var s = iso(X.a, X.m, d), w = wd(s), sem = semanaNum(s), ws = d > 1 && iniciaSemana(s);
-    info[d] = { s: s, w: w, sem: sem, imp: sem % 2 === 1, ws: ws, fs: w === 0 || w === 6, hj: s === HOJE, col: !!X.COL[d] };
+    info[d] = { s: s, w: w, sem: sem, imp: sem % 2 === 1, ws: ws, fs: w === 0 || w === 6, hj: s === HOJE, col: !!X.COL[d], fer: (D.feriados || []).filter(function (f) { return f.d === s; }) };
     if (d === 1 || ws) segs.push({ sem: sem, n: 1 }); else segs[segs.length - 1].n++;
   }
-  function cl(x, extra) { return (x.fs ? 'fs ' : '') + (x.imp ? 'imp ' : '') + (x.ws ? 'ws ' : '') + (x.hj ? 'hj ' : '') + (x.col ? 'col ' : '') + (extra || ''); }
+  function cl(x, extra) { return (x.fer && x.fer.length ? 'fer ' : '') + (x.fs ? 'fs ' : '') + (x.imp ? 'imp ' : '') + (x.ws ? 'ws ' : '') + (x.hj ? 'hj ' : '') + (x.col ? 'col ' : '') + (extra || ''); }
   var col = '<colgroup><col class="cn">' + new Array(M.nd + 1).join('<col>') + '</colgroup>';
   var cab = '<thead><tr class="r1"><th class="nome">Semana</th>' + segs.map(function (g) {
     var par = g.sem % 2 === 0;
     return '<th colspan="' + g.n + '" class="sem ' + (par ? 'par' : 'imp') + '" title="Semana ' + g.sem + ' do ano · ' + (par ? 'par' : 'ímpar') + '"><b>' + g.sem + '</b>' + (g.n >= 3 ? '<span class="pl"> ' + (par ? 'par' : 'ímpar') + '</span><span class="pc"> ' + (par ? 'par' : 'ímp') + '</span>' : '') + '</th>';
   }).join('') + '</tr><tr class="r2"><th class="nome">Dia</th>';
-  for (d = 1; d <= M.nd; d++) cab += '<th data-acao="dia" data-v="' + d + '" class="' + cl(info[d]) + '" title="' + SEML[info[d].w] + ', ' + br(info[d].s) + ' · semana ' + info[d].sem + (info[d].col ? ' · férias coletivas' : '') + '">' + d + '</th>';
+  for (d = 1; d <= M.nd; d++) cab += '<th data-acao="dia" data-v="' + d + '" class="' + cl(info[d]) + '" title="' + SEML[info[d].w] + ', ' + br(info[d].s) + ' · semana ' + info[d].sem + (info[d].col ? ' · férias coletivas' : '') + info[d].fer.map(function (f) { return ' · ' + (f.tipo || 'Feriado') + ': ' + f.nome + (f.quem && !/todos/i.test(f.quem) ? ' (folga: ' + f.quem + ')' : ''); }).join('') + '">' + d + '</th>';
   cab += '</tr><tr class="r3"><th class="nome"><span class="so-pc">' + (agrupar === 'maq' ? 'Máquina / colaborador' : agrupar === 'grupo' ? 'Grupo / colaborador' : 'Turno / colaborador') + '</span><span class="so-cel">Nome</span></th>';
   for (d = 1; d <= M.nd; d++) cab += '<th data-acao="dia" data-v="' + d + '" class="' + cl(info[d]) + '">' + SEM[info[d].w] + '</th>';
   cab += '</tr></thead>';
@@ -669,7 +806,7 @@ function vMes(X) {
         if (!x) { corpo += '<td class="' + cl(z) + '"></td>'; continue; }
         var t3 = turnoDe(i, z.s) || '(sem turno)', f = periodoNoDia(i, z.s), cf = X.C.marca[i + '_' + d3];
         var tip = '<b>' + esc(nomeBonito(p.nome)) + '</b><small>' + esc(nomeT(t3)) + (p.maq ? ' · ' + esc(maqTxt(p.maq)) : '') + '</small>' +
-          (f ? '<div>' + dCurta(f.ini) + ' → ' + dCurta(f.fim) + ' · ' + (dif(f.ini, f.fim) + 1) + ' dias</div><div>' + (x.t === 's' ? '<span class="a">💡 ' + rotSug() + '</span>' + (D.privado ? '<small style="display:inline"> · ' + (D.sugTime ? 'o time também vê' : 'o time não vê') + '</small>' : '') : x.t === 'p' ? '<span class="a">' + rotP(f) + (f.et === 'rh' ? ' <small style="display:inline">(o gestor já aprovou)</small>' : '') + '</span>' : x.t === 'c' ? 'Concluída' : 'Retorno a partir de ' + dCurta(soma(f.fim, 1)) + ' <small style="display:inline">(escala do turno)</small>') + '</div>' : '') +
+          (f ? '<div>' + dCurta(f.ini) + ' → ' + dCurta(f.fim) + ' · ' + (dif(f.ini, f.fim) + 1) + ' dias</div><div>' + (x.t === 's' ? '<span class="a">💡 ' + rotSug() + '</span>' + (D.privado ? '<small style="display:inline"> · ' + (D.sugTime ? 'o time também vê' : 'o time não vê') + '</small>' : '') : x.t === 'p' ? '<span class="a">' + rotP(f) + (f.et === 'rh' ? ' <small style="display:inline">(o gestor já aprovou)</small>' : '') + '</span>' : x.t === 'c' ? 'Concluída' : 'Volta prevista: ' + FAB.retornoTxt(f.p, f) + ' <small style="display:inline">(escala do turno)</small>') + '</div>' : '') +
           (cf ? '<div class="r">⚠️ Fora junto com ' + esc(cf) + ' (mesma máquina)</div>' : '');
         corpo += '<td class="' + cl(z, 'v ' + x.t + (x.i ? ' i' : '') + (x.f ? ' f' : '') + (cf ? ' cf' : '')) + '" style="--ct:' + corTurno(t3) + '" data-tip="' + esc(tip) + '"></td>';
       }
@@ -782,7 +919,7 @@ function vHoje() {
   });
   agora.sort(function (x, y) { return x.fim < y.fim ? -1 : 1; }); prox.sort(function (x, y) { return x.ini < y.ini ? -1 : 1; });
   var nAg = agora.length, pv = agora[0], ps = prox[0];
-  var s = pv ? 'Próximo retorno: ' + esc(primeiro(D.pessoas[pv.p].nome)) + ' na ' + dCurta(soma(pv.fim, 1)) : ps ? 'Próxima saída: ' + esc(primeiro(D.pessoas[ps.p].nome)) + ' na ' + dCurta(ps.ini) : 'Equipe completa — ninguém de férias nos próximos ' + NP + ' dias';
+  var s = pv ? 'Próximo retorno: ' + esc(primeiro(D.pessoas[pv.p].nome)) + ' na ' + FAB.retornoTxt(pv.p, pv, 1) : ps ? 'Próxima saída: ' + esc(primeiro(D.pessoas[ps.p].nome)) + ' na ' + dCurta(ps.ini) : 'Equipe completa — ninguém de férias nos próximos ' + NP + ' dias';
   s = s.replace(/ na (sáb|dom)/, ' no $1');
   var cob = ordemTurnos(HOJE).concat(['(sem turno)']).filter(function (t) { return tot[t]; }).map(function (t) {
     var f = fora[t] || 0, pct = Math.round(100 * (tot[t] - f) / tot[t]);
@@ -797,7 +934,7 @@ function vHoje() {
   o += agora.length ? '<div class="cards">' + agora.map(function (f, k) {
     var p = D.pessoas[f.p], total = dif(f.ini, f.fim) + 1, foi = dif(f.ini, HOJE) + 1, falta = dif(HOJE, f.fim) + 1;
     return '<button class="card" data-acao="pessoa" data-v="' + f.p + '" style="animation-delay:' + Math.min(k * 0.04, 0.4) + 's"><div class="top">' + avatar(f.p) + '<div style="min-width:0"><div class="nm">' + esc(nomeBonito(p.nome)) + '</div><div class="mt">' + esc(nomeT(turnoDe(f.p, HOJE))) + (p.maq ? ' · ' + esc(p.maq) : '') + '</div></div><div class="dir"><b>' + falta + '</b><span>' + (falta === 1 ? 'último dia' : 'dias restantes') + '</span></div></div>' +
-      '<div class="prog"><i style="width:' + Math.round(100 * foi / total) + '%"></i></div><div class="rod2"><span>' + br(f.ini) + ' → ' + br(f.fim) + ' · ' + total + ' dias</span><span title="O dia exato segue a escala do turno">retorno a partir de ' + dCurta(soma(f.fim, 1)) + '</span></div></button>';
+      '<div class="prog"><i style="width:' + Math.round(100 * foi / total) + '%"></i></div><div class="rod2"><span>' + br(f.ini) + ' → ' + br(f.fim) + ' · ' + total + ' dias</span><span title="Pela escala do turno e o calendário da fábrica">volta prevista ' + FAB.retornoTxt(f.p, f, 1) + '</span></div></button>';
   }).join('') + '</div>' : '<div class="vazio" style="padding:22px"><span class="ic">💪</span>Ninguém de férias hoje' + filtroTxt() + '.</div>';
   o += '<div class="sec">🗓️ Saem nos próximos ' + NP + ' dias <span class="n">' + prox.length + '</span></div>';
   o += prox.length ? '<div class="cards">' + prox.map(function (f, k) {
@@ -857,7 +994,7 @@ function fecharFolha() { document.getElementById('veu').classList.remove('on'); 
 function calMini(s, rot) { return '<div class="cal"><span>' + rot + '</span><b>' + (+s.slice(8)) + '</b></div>'; }
 function abrirPessoa(i) {
   var p = D.pessoas[i], fs = feriasDe(i), ag = fs.filter(function (f) { return !f.sug && f.ini <= HOJE && f.fim >= HOJE; })[0], px = fs.filter(function (f) { return !f.sug && f.ini > HOJE; })[0];
-  var dest = ag ? '<div class="dest"><span class="ic">🌴</span><div>Desfrutando as férias<br><span style="font-weight:500;font-size:12px">retorno a partir de ' + dCurta(soma(ag.fim, 1)) + '<br>conforme a escala do turno</span></div><b>' + (dif(HOJE, ag.fim) + 1) + '</b><span style="font-size:11px">dias<br>restantes</span></div>'
+  var dest = ag ? '<div class="dest"><span class="ic">🌴</span><div>Desfrutando as férias<br><span style="font-weight:500;font-size:12px">volta prevista ' + FAB.retornoTxt(i, ag, 1) + '<br>pela escala do turno</span></div><b>' + (dif(HOJE, ag.fim) + 1) + '</b><span style="font-size:11px">dias<br>restantes</span></div>'
     : px ? '<div class="dest"><span class="ic">✈️</span><div>Próximas férias<br><span style="font-weight:500;font-size:12px">' + dCurta(px.ini) + ' → ' + dCurta(px.fim) + '</span></div><b>' + dif(HOJE, px.ini) + '</b><span style="font-size:11px">dias<br>para sair</span></div>' : '';
   var trs = D.trocas.filter(function (x) { return x.p === i && x.ate >= HOJE; });
   var lista = fs.filter(function (f) { return f.fim >= soma(HOJE, -120); }).map(function (f) {
@@ -878,7 +1015,7 @@ function abrirDia(d) {
     var g = grupos[t]; if (!g) return;
     corpo += '<div class="dgrp" style="display:flex;align-items:center;gap:6px">' + ponto(t, 8) + esc(nomeT(t)) + ' · ' + g.length + '</div>' + g.map(function (f) {
       var p = D.pessoas[f.p], cf = X.C.marca[f.p + '_' + d], t2 = tipo(f.sit);
-      return '<div class="dl" data-acao="pessoa" data-v="' + f.p + '">' + avatar(f.p) + '<div style="min-width:0;flex:1"><div style="font-weight:600">' + esc(nomeBonito(p.nome)) + '</div><div style="font-size:11px;color:var(--mut)">' + (p.maq ? esc(p.maq) + ' · ' : '') + 'retorno a partir de ' + dCurta(soma(f.fim, 1)) + '</div></div>' + (cf ? '<span class="cf-badge">conflito</span>' : '<span class="pill ' + t2 + '">' + (t2 === 's' ? '💡 Sugestão' : t2 === 'p' ? 'Aguardando' : t2 === 'c' ? 'Concluída' : 'Marcada') + '</span>') + '</div>';
+      return '<div class="dl" data-acao="pessoa" data-v="' + f.p + '">' + avatar(f.p) + '<div style="min-width:0;flex:1"><div style="font-weight:600">' + esc(nomeBonito(p.nome)) + '</div><div style="font-size:11px;color:var(--mut)">' + (p.maq ? esc(p.maq) + ' · ' : '') + 'volta prevista ' + FAB.retornoTxt(f.p, f, 1) + '</div></div>' + (cf ? '<span class="cf-badge">conflito</span>' : '<span class="pill ' + t2 + '">' + (t2 === 's' ? '💡 Sugestão' : t2 === 'p' ? 'Aguardando' : t2 === 'c' ? 'Concluída' : 'Marcada') + '</span>') + '</div>';
     }).join('');
   });
   var tit = SEML[wd(s)].charAt(0).toUpperCase() + SEML[wd(s)].slice(1) + ', ' + d + ' de ' + MESES[mes].toLowerCase();
