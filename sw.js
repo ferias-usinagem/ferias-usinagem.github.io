@@ -1,6 +1,6 @@
-// Calendário de Férias · app instalável — versão 2.10.0-202611081627
+// Calendário de Férias · app instalável — versão 2.11.0-202611081751
 // Tela do app guardada no aparelho (abre rápido e sem internet). Os dados ficam com a própria página (localStorage).
-var CACHE = 'cal-ferias-2.10.0-202611081627';
+var CACHE = 'cal-ferias-2.11.0-202611081751';
 var BASE = ['./', 'index.html', 'manifest.webmanifest', 'icones/icone-192.png', 'icones/icone-512.png', 'icones/apple-180.png'];
 self.addEventListener('install', function (e) { e.waitUntil(caches.open(CACHE).then(function (c) { return c.addAll(BASE); }).then(function () { return self.skipWaiting(); })); });
 self.addEventListener('activate', function (e) {

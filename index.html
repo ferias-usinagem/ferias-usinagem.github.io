@@ -753,8 +753,10 @@ function atalhoMes(a, m) {
   if (lim) partes.push(lim + (lim === 1 ? ' turno acima' : ' turnos acima') + ' do limite');
   return '<button class="atalho" data-acao="irmes" data-v="' + a + '-' + m + '"><span class="ic">⚠️</span><div><b>' + X.alertas + (X.alertas === 1 ? ' alerta' : ' alertas') + ' em ' + MESES[m].toLowerCase() + '</b><div class="mt">' + partes.join(' · ') + '</div></div><span class="seta">›</span></button>';
 }
+// regra "Calendário: mostrar saídas dos próximos" (dias): aba Hoje. Padrão 60
+function diasProx() { var r = regra(/sa[ií]das dos pr[oó]ximos/i, HOJE), n = r ? parseInt(String(r.valor).replace(/\D/g, ""), 10) : 0; return n > 0 && n <= 730 ? n : 60; }
 function vHoje() {
-  var agora = [], prox = [], limite = soma(HOJE, 60), tot = {}, fora = {};
+  var NP = diasProx(), agora = [], prox = [], limite = soma(HOJE, NP), tot = {}, fora = {};
   D.pessoas.forEach(function (p, i) { var t = turnoDe(i, HOJE) || '(sem turno)'; tot[t] = (tot[t] || 0) + 1; });
   D.ferias.forEach(function (f) {
     var t = turnoDe(f.p, HOJE) || '(sem turno)';
@@ -763,7 +765,7 @@ function vHoje() {
   });
   agora.sort(function (x, y) { return x.fim < y.fim ? -1 : 1; }); prox.sort(function (x, y) { return x.ini < y.ini ? -1 : 1; });
   var nAg = agora.length, pv = agora[0], ps = prox[0];
-  var s = pv ? 'Próximo retorno: ' + esc(primeiro(D.pessoas[pv.p].nome)) + ' na ' + dCurta(soma(pv.fim, 1)) : ps ? 'Próxima saída: ' + esc(primeiro(D.pessoas[ps.p].nome)) + ' na ' + dCurta(ps.ini) : 'Equipe completa — ninguém de férias nos próximos 60 dias';
+  var s = pv ? 'Próximo retorno: ' + esc(primeiro(D.pessoas[pv.p].nome)) + ' na ' + dCurta(soma(pv.fim, 1)) : ps ? 'Próxima saída: ' + esc(primeiro(D.pessoas[ps.p].nome)) + ' na ' + dCurta(ps.ini) : 'Equipe completa — ninguém de férias nos próximos ' + NP + ' dias';
   s = s.replace(/ na (sáb|dom)/, ' no $1');
   var cob = ordemTurnos(HOJE).concat(['(sem turno)']).filter(function (t) { return tot[t]; }).map(function (t) {
     var f = fora[t] || 0, pct = Math.round(100 * (tot[t] - f) / tot[t]);
@@ -780,12 +782,12 @@ function vHoje() {
     return '<button class="card" data-acao="pessoa" data-v="' + f.p + '" style="animation-delay:' + Math.min(k * 0.04, 0.4) + 's"><div class="top">' + avatar(f.p) + '<div style="min-width:0"><div class="nm">' + esc(nomeBonito(p.nome)) + '</div><div class="mt">' + esc(nomeT(turnoDe(f.p, HOJE))) + (p.maq ? ' · ' + esc(p.maq) : '') + '</div></div><div class="dir"><b>' + falta + '</b><span>' + (falta === 1 ? 'último dia' : 'dias restantes') + '</span></div></div>' +
       '<div class="prog"><i style="width:' + Math.round(100 * foi / total) + '%"></i></div><div class="rod2"><span>' + br(f.ini) + ' → ' + br(f.fim) + ' · ' + total + ' dias</span><span title="O dia exato segue a escala do turno">retorno a partir de ' + dCurta(soma(f.fim, 1)) + '</span></div></button>';
   }).join('') + '</div>' : '<div class="vazio" style="padding:22px"><span class="ic">💪</span>Ninguém de férias hoje' + filtroTxt() + '.</div>';
-  o += '<div class="sec">🗓️ Saem nos próximos 60 dias <span class="n">' + prox.length + '</span></div>';
+  o += '<div class="sec">🗓️ Saem nos próximos ' + NP + ' dias <span class="n">' + prox.length + '</span></div>';
   o += prox.length ? '<div class="cards">' + prox.map(function (f, k) {
     var p = D.pessoas[f.p], em = dif(HOJE, f.ini), t = tipo(f.sit), total = dif(f.ini, f.fim) + 1;
     return '<button class="card" data-acao="pessoa" data-v="' + f.p + '" style="animation-delay:' + Math.min(k * 0.04, 0.5) + 's"><div class="top">' + avatar(f.p) + '<div style="min-width:0"><div class="nm">' + esc(nomeBonito(p.nome)) + '</div><div class="mt">' + esc(nomeT(turnoDe(f.p, f.ini))) + (p.maq ? ' · ' + esc(p.maq) : '') + '</div></div><div class="dir"><b>' + (em === 1 ? '🔜' : em) + '</b><span>' + (em === 1 ? 'amanhã' : 'dias para sair') + '</span></div></div>' +
       '<div class="rod2" style="margin-top:9px"><span>' + dCurta(f.ini) + ' → ' + dCurta(f.fim) + ' · ' + total + ' dias</span><span class="pill ' + t + '">' + (t === 'p' ? rotP(f) : 'Marcada') + '</span></div></button>';
-  }).join('') + '</div>' : '<div class="vazio" style="padding:22px">Nenhuma saída nos próximos 60 dias' + filtroTxt() + '.</div>';
+  }).join('') + '</div>' : '<div class="vazio" style="padding:22px">Nenhuma saída nos próximos ' + NP + ' dias' + filtroTxt() + '.</div>';
   return o;
 }
 
