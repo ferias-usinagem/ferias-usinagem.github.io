@@ -251,6 +251,13 @@ tr.grupo td .gt{position:sticky;left:10px;display:inline-flex;align-items:center
 .plan td.v{cursor:help}
 .plan td.v.m{background:var(--ct)} .plan td.v.p{background:repeating-linear-gradient(135deg,color-mix(in srgb,var(--ct) 55%,var(--card)) 0 3px,color-mix(in srgb,var(--ct) 14%,var(--card)) 3px 6px);box-shadow:inset 0 0 0 2px var(--ct)} .plan td.v.c{background:var(--cinza)}
 .plan td.v.cf{background:repeating-linear-gradient(135deg,var(--bad) 0 3px,#F2A6A0 3px 5px)}
+/* sugestão do líder (planejamento): só o contorno pontilhado na cor do turno */
+.plan td.v.s{position:relative;background:color-mix(in srgb,var(--ct) 9%,transparent)}
+.plan td.v.s::after{content:"";position:absolute;left:0;right:0;top:3px;bottom:3px;border-top:2px dotted var(--ct);border-bottom:2px dotted var(--ct);pointer-events:none}
+.plan td.v.s.i::after{left:2px;border-left:2px dotted var(--ct);border-radius:4px 0 0 4px} .plan td.v.s.f::after{right:2px;border-right:2px dotted var(--ct);border-radius:0 4px 4px 0} .plan td.v.s.i.f::after{border-radius:4px}
+.plan td.v.s.cf{background:color-mix(in srgb,var(--bad) 16%,transparent)} .plan td.v.s.cf::after{border-color:var(--bad)}
+.lin .tira i.s{background:color-mix(in srgb,var(--ct) 8%,var(--card));outline:1.5px dotted var(--ct);outline-offset:-1.5px} .tira i.s{background:transparent;outline:1.5px dotted var(--azul);outline-offset:-1.5px}
+.pill.s{background:transparent;color:var(--azul-tx);border:1.5px dotted currentColor;padding:1px 7px} .leg i.s{background:transparent;border:2px dotted #7F8E9C;height:12px}
 .plan td.v:hover{outline:2px solid var(--txt);outline-offset:-2px}
 .plan tr.grupo td{background:color-mix(in srgb,var(--ct) 14%,var(--card))!important;border-left:4px solid var(--ct);text-align:left;padding:5px 10px;font-size:12px;font-weight:700;color:var(--txt);height:auto;white-space:normal}
 .plan tr.grupo .gt{display:inline-flex;align-items:center;gap:8px;flex-wrap:wrap}
@@ -326,6 +333,7 @@ tr.grupo td .gt{position:sticky;left:10px;display:inline-flex;align-items:center
     <div class="chips" id="chips"></div>
     <div class="agr" id="agr"><span>Agrupar</span><button data-acao="agrupar" data-v="turno">Turno</button><button data-acao="agrupar" data-v="maq">Máquina</button><button data-acao="agrupar" data-v="grupo">Grupo</button></div>
     <label class="so" id="soL"><input type="checkbox" id="so" checked> Só <span class="so-pc">quem tem </span>férias</label>
+    <label class="so" id="sgL" style="display:none" title="Ligado: o calendário mostra as sugestões do líder (pontilhadas) e conta nos limites e conflitos — o ano planejado. Desligado: só o que já está no Meu RH"><input type="checkbox" id="sg"> <span class="so-pc">Incluir </span>sugestões</label>
     <label class="so" id="avL" title="Mostrar os alertas e avisos do mês acima do calendário"><input type="checkbox" id="av"> <span class="so-pc">Avisos</span><span class="so-cel">⚠</span><span class="nb" id="avN"></span></label>
   </div>
 </div></div>
@@ -351,6 +359,14 @@ var agrupar = 'turno', avAberto = false;
 document.addEventListener('toggle', function (e) { var d = e.target; if (!d.classList || !d.classList.contains('alertas')) return; avAberto = d.open; var ab = d.querySelector('.abre'); if (ab) ab.textContent = d.open ? 'fechar' : 'ver detalhes'; }, true);
 try { var ag = localStorage.getItem('calFeriasAgrupar'); if (ag === 'maq' || ag === 'turno' || ag === 'grupo') agrupar = ag; } catch (e) {}
 try { var vs = localStorage.getItem('calFeriasVista2'); if (vs && /^(hoje|mes|lista|ano)$/.test(vs)) vista = vs; } catch (e) {}
+// sugestões do líder (planejamento): não são pedidos. Ligado = entram no calendário (pontilhadas) e contam nos limites e conflitos
+var REAIS = D && D.ferias ? D.ferias.slice() : [], SUGS = [], incSug = true;
+if (D) SUGS = (D.sugestoes || []).filter(function (x) { return x && x.ini && x.fim && !/virou|vencid/i.test(x.sit || ''); }).map(function (x) { return { p: x.p, ini: x.ini, fim: x.fim, sit: 'Sugestão', sug: 1 }; });
+try { if (localStorage.getItem('calFeriasSug') === '0') incSug = false; } catch (e) {}
+function aplicarSug() { if (D) D.ferias = incSug && SUGS.length ? REAIS.concat(SUGS) : REAIS.slice(); }
+aplicarSug();
+function comSug() { return incSug && SUGS.length > 0; }
+function rotSug() { return D && D.privado ? 'Sugestão do líder' : 'Sugestão: converse com seu líder'; }
 var mh = /^#(\d{4})-(\d{2})$/.exec(location.hash || ''); if (mh) { ano = +mh[1]; mes = +mh[2] - 1; if (vista === 'hoje') vista = 'mes'; }
 
 function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
@@ -370,7 +386,7 @@ function corTurno(t) { if (!t || t === '(sem turno)') return '#7F8E9C'; var ct =
 function avatar(i, g) { var p = D.pessoas[i]; return '<span class="av' + (g ? ' g' : '') + '" style="background:' + corTurno(p.turno) + '">' + esc(iniciais(p.nome)) + '</span>'; }
 function nomeT(t) { return t === '(sem turno)' || !t ? 'Sem turno' : (t.length <= 3 ? 'Turno ' : '') + t; }
 function rotP(f) { return f && f.et === 'rh' ? 'Aguardando RH' : f && f.et === 'gestor' ? 'Aguardando gestor' : 'Aguardando aprovação'; }
-function tipo(sit) { sit = String(sit).toLowerCase(); return /pend|aguard|aprova/.test(sit) && !/marcad/.test(sit) ? 'p' : /conclu|gozad|desfrut/.test(sit) ? 'c' : 'm'; }
+function tipo(sit) { sit = String(sit).toLowerCase(); if (/sugest/.test(sit)) return 's'; return /pend|aguard|aprova/.test(sit) && !/marcad/.test(sit) ? 'p' : /conclu|gozad|desfrut/.test(sit) ? 'c' : 'm'; }
 function vale(r, dia) { return (!r.de || r.de <= dia) && (!r.ate || r.ate >= dia); }
 function turnoDe(p, dia) {
   for (var i = 0; i < D.trocas.length; i++) { var t = D.trocas[i]; if (t.p === p && t.de <= dia && t.ate >= dia) return t.turno; }
@@ -430,7 +446,7 @@ function mapaMes(a, m) {
 function coletivas(M, a, m) {
   if (a !== undefined) { var cad = coletivasCadastradas(a, m, M.nd); if (cad) { M.colCad = true; return cad; } }
   var col = {}, fora = [], base = Math.max(5, Math.ceil(D.pessoas.length * 0.5)), vizinho = Math.max(3, Math.ceil(D.pessoas.length * 0.35));
-  for (var d = 1; d <= M.nd; d++) { var n = 0; Object.keys(M.dias).forEach(function (p) { var x = M.dias[p][d]; if (x && x.t !== 'p') n++; }); fora[d] = n; if (n >= base) col[d] = n; }
+  for (var d = 1; d <= M.nd; d++) { var n = 0; Object.keys(M.dias).forEach(function (p) { var x = M.dias[p][d]; if (x && x.t !== 'p' && x.t !== 's') n++; }); fora[d] = n; if (n >= base) col[d] = n; }
   var mudou = true; // estende para os vizinhos (quem sai antes ou volta depois das coletivas)
   while (mudou) { mudou = false; for (var d2 = 1; d2 <= M.nd; d2++) if (!col[d2] && fora[d2] >= vizinho && (col[d2 - 1] || col[d2 + 1])) { col[d2] = fora[d2]; mudou = true; } }
   return col;
@@ -491,8 +507,8 @@ function resultadosBusca() {
   ach.sort(function (x, y) { return D.pessoas[x].nome.localeCompare(D.pessoas[y].nome, 'pt-BR'); });
   if (!ach.length) return '<div class="achou nada">🔎 Ninguém encontrado para "<b>' + esc(busca.trim()) + '</b>"' + (turnoSel ? ' no ' + esc(nomeT(turnoSel)) : '') + '. Tente parte do nome (ex.: "jo sil"), a máquina ou o turno.</div>';
   var lin = ach.slice(0, 8).map(function (i) {
-    var p = D.pessoas[i], fs = feriasDe(i), ag = fs.filter(function (f) { return f.ini <= HOJE && f.fim >= HOJE; })[0], px = fs.filter(function (f) { return f.ini > HOJE; });
-    var f = ag || px[0], txt = ag ? '🌴 de férias até ' + br(ag.fim) : px[0] ? '✈️ ' + br(px[0].ini) + ' → ' + br(px[0].fim) + (px.length > 1 ? ' <small>+' + (px.length - 1) + '</small>' : '') : '<span class="sem">sem férias marcadas</span>';
+    var p = D.pessoas[i], fs = feriasDe(i), ag = fs.filter(function (f) { return !f.sug && f.ini <= HOJE && f.fim >= HOJE; })[0], px = fs.filter(function (f) { return f.ini > HOJE; });
+    var f = ag || px[0], txt = ag ? '🌴 de férias até ' + br(ag.fim) : px[0] ? (px[0].sug ? '💡 ' : '✈️ ') + br(px[0].ini) + ' → ' + br(px[0].fim) + (px.length > 1 ? ' <small>+' + (px.length - 1) + '</small>' : '') : '<span class="sem">sem férias marcadas</span>';
     var alvo = f ? ' data-acao="irmes" data-v="' + f.ini.slice(0, 4) + '-' + (+f.ini.slice(5, 7) - 1) + '" title="Ver ' + MESES[+f.ini.slice(5, 7) - 1].toLowerCase() + ' na Planilha"' : ' data-acao="pessoa" data-v="' + i + '"';
     return '<button class="ac"' + alvo + '>' + avatar(i) + '<span class="nm"><b>' + esc(nomeBonito(p.nome)) + '</b><small>' + esc([nomeT(p.turno), maqTxt(p.maq)].filter(Boolean).join(' · ')) + '</small></span><span class="qd">' + txt + '</span></button>';
   }).join('');
@@ -516,8 +532,8 @@ function calcMes(a, m) {
 }
 function kpisHtml(X) {
   var M = X.M, dia1 = iso(X.a, X.m, 1), mesHoje = HOJE.slice(0, 7) === dia1.slice(0, 7), hojeFora = 0, pico = 0, picoDia = 0, pend = 0;
-  Object.keys(M.dias).forEach(function (p) { var x = M.dias[p][+HOJE.slice(8)]; if (mesHoje && x && x.t !== 'p') hojeFora++; if (M.dias[p].some(function (y) { return y && y.t === 'p'; })) pend++; });
-  for (var d = 1; d <= M.nd; d++) { var n = 0; Object.keys(M.dias).forEach(function (p) { if (M.dias[p][d] && M.dias[p][d].t !== 'p') n++; }); if (n > pico) { pico = n; picoDia = d; } }
+  Object.keys(M.dias).forEach(function (p) { var x = M.dias[p][+HOJE.slice(8)]; if (mesHoje && x && x.t !== 'p' && x.t !== 's') hojeFora++; if (M.dias[p].some(function (y) { return y && y.t === 'p'; })) pend++; });
+  for (var d = 1; d <= M.nd; d++) { var n = 0; Object.keys(M.dias).forEach(function (p) { if (M.dias[p][d] && M.dias[p][d].t !== 'p' && M.dias[p][d].t !== 's') n++; }); if (n > pico) { pico = n; picoDia = d; } }
   return '<div class="kpis">' +
     '<div class="kpi"><div class="v">' + Object.keys(M.dias).length + '</div><div class="l">Com férias em ' + MESES[X.m].toLowerCase() + '</div></div>' +
     (mesHoje ? '<div class="kpi ok"><div class="v">' + hojeFora + '</div><div class="l">De férias hoje</div></div>' : '') +
@@ -526,7 +542,7 @@ function kpisHtml(X) {
     '<div class="kpi ' + (X.C.lista.length + X.estouros.length ? 'bad' : X.atencao.length ? 'warn' : 'ok') + '"><div class="v">' + X.alertas + '</div><div class="l">Conflitos e alertas</div></div></div>';
 }
 function avisosHtml(X) {
-  var nm = MESES[X.m].toLowerCase(), cl = X.C.lista.slice();
+  var nm = MESES[X.m].toLowerCase() + (comSug() ? ' (contando as sugestões)' : ''), cl = X.C.lista.slice();
   X.estouros.forEach(function (t) { cl.unshift('<b>' + esc(nomeT(t)) + ':</b> ' + X.cont[t] + ' pessoas de férias em ' + nm + (X.diasCol.length ? ' fora das coletivas' : '') + ' — ' + esc(X.niveis[t].txt)); });
   var av = X.atencao.map(function (t) { return '<b>' + esc(nomeT(t)) + ':</b> ' + X.cont[t] + ' pessoas de férias em ' + nm + ' — ' + esc(X.niveis[t].txt) + '. Se já foi negociado, cadastre em Regras como "Exceção autorizada".'; });
   var o = X.diasCol.length ? '<div class="caixa colet">🎄 <b>Férias coletivas</b> — dias ' + faixas(X.diasCol) + '/' + String(X.m + 1).padStart(2, '0') + (X.M.colCad ? ' (cadastradas em Regras)' : ' (detectadas automaticamente — cadastre em Regras para ficar exato)') + '. Nesses dias não contam conflitos nem limite por turno.</div>' : '';
@@ -653,7 +669,7 @@ function vMes(X) {
         if (!x) { corpo += '<td class="' + cl(z) + '"></td>'; continue; }
         var t3 = turnoDe(i, z.s) || '(sem turno)', f = periodoNoDia(i, z.s), cf = X.C.marca[i + '_' + d3];
         var tip = '<b>' + esc(nomeBonito(p.nome)) + '</b><small>' + esc(nomeT(t3)) + (p.maq ? ' · ' + esc(maqTxt(p.maq)) : '') + '</small>' +
-          (f ? '<div>' + dCurta(f.ini) + ' → ' + dCurta(f.fim) + ' · ' + (dif(f.ini, f.fim) + 1) + ' dias</div><div>' + (x.t === 'p' ? '<span class="a">' + rotP(f) + (f.et === 'rh' ? ' <small style="display:inline">(o gestor já aprovou)</small>' : '') + '</span>' : x.t === 'c' ? 'Concluída' : 'Retorno a partir de ' + dCurta(soma(f.fim, 1)) + ' <small style="display:inline">(escala do turno)</small>') + '</div>' : '') +
+          (f ? '<div>' + dCurta(f.ini) + ' → ' + dCurta(f.fim) + ' · ' + (dif(f.ini, f.fim) + 1) + ' dias</div><div>' + (x.t === 's' ? '<span class="a">💡 ' + rotSug() + '</span>' + (D.privado ? '<small style="display:inline"> · ' + (D.sugTime ? 'o time também vê' : 'o time não vê') + '</small>' : '') : x.t === 'p' ? '<span class="a">' + rotP(f) + (f.et === 'rh' ? ' <small style="display:inline">(o gestor já aprovou)</small>' : '') + '</span>' : x.t === 'c' ? 'Concluída' : 'Retorno a partir de ' + dCurta(soma(f.fim, 1)) + ' <small style="display:inline">(escala do turno)</small>') + '</div>' : '') +
           (cf ? '<div class="r">⚠️ Fora junto com ' + esc(cf) + ' (mesma máquina)</div>' : '');
         corpo += '<td class="' + cl(z, 'v ' + x.t + (x.i ? ' i' : '') + (x.f ? ' f' : '') + (cf ? ' cf' : '')) + '" style="--ct:' + corTurno(t3) + '" data-tip="' + esc(tip) + '"></td>';
       }
@@ -664,7 +680,7 @@ function vMes(X) {
   var grade = corpo ? '<div class="plan" id="gradeEl"><table>' + col + cab + '<tbody>' + corpo + '</tbody></table></div>' : '<div class="grade">' + vazioMes(X) + '</div>';
   var tsLeg = ordemTurnos(dia1).map(function (t) { return '<span><i style="background:' + corTurno(t) + '"></i>' + esc(nomeT(t)) + '</span>'; }).join('');
   return (celular || !mostrarAv ? '' : kpisHtml(X)) + avisosHtml(X) + avisoMaq() + (celular && corpo && mostrarAv ? '<div class="dica">🤏 Afaste dois dedos para dar zoom e ler os nomes · toque num dia pintado para ver as datas</div>' : '') + grade +
-    '<div class="leg">' + tsLeg + '<span><i style="background:repeating-linear-gradient(135deg,#B4BEC8 0 3px,#EEF1F4 3px 6px);box-shadow:inset 0 0 0 2px #7F8E9C"></i>Aguardando aprovação</span><span><i style="background:var(--cinza)"></i>Concluída</span><span><i style="background:repeating-linear-gradient(135deg,var(--bad) 0 3px,#F2A6A0 3px 5px)"></i>Conflito na mesma máquina</span><span><i style="background:var(--semimp);border:1px solid var(--borda)"></i>Semana ímpar</span><span><i style="background:var(--card);border:1px solid var(--borda)"></i>Semana par</span><span><b class="nf n1">1</b><b class="nf n2">2</b><b class="nf n3">3</b>' + (agrupar === 'maq' ? 'Fora no dia na máquina: 2+ = conflito' : agrupar === 'grupo' ? 'Fora no dia, no grupo' : 'Fora no dia, por turno') + '</span></div>';
+    '<div class="leg">' + tsLeg + '<span><i style="background:repeating-linear-gradient(135deg,#B4BEC8 0 3px,#EEF1F4 3px 6px);box-shadow:inset 0 0 0 2px #7F8E9C"></i>Aguardando aprovação</span><span><i style="background:var(--cinza)"></i>Concluída</span>' + (comSug() ? '<span><i class="s"></i>' + (D.privado ? 'Sugestão do líder' : 'Sugestão do líder: converse com ele') + '</span>' : '') + '<span><i style="background:repeating-linear-gradient(135deg,var(--bad) 0 3px,#F2A6A0 3px 5px)"></i>Conflito na mesma máquina</span><span><i style="background:var(--semimp);border:1px solid var(--borda)"></i>Semana ímpar</span><span><i style="background:var(--card);border:1px solid var(--borda)"></i>Semana par</span><span><b class="nf n1">1</b><b class="nf n2">2</b><b class="nf n3">3</b>' + (agrupar === 'maq' ? 'Fora no dia na máquina: 2+ = conflito' : agrupar === 'grupo' ? 'Fora no dia, no grupo' : 'Fora no dia, por turno') + '</span></div>';
 }
 
 // quem do turno está fora em cada dia (sem concluídas e fora das coletivas): mostra onde as férias se sobrepõem
@@ -736,7 +752,7 @@ function vLista(X) {
     g.ps.forEach(function (i, k) {
       var p = D.pessoas[i], tira = '', regua = '';
       for (var d = 1; d <= M.nd; d++) { var s = iso(X.a, X.m, d), w = wd(s), x = (M.dias[i] || [])[d]; tira += '<i class="' + (x ? (X.C.marca[i + '_' + d] ? 'cf' : x.t) : (w === 0 || w === 6 ? 'fs' : '')) + (s === HOJE ? ' hj' : '') + '"></i>'; regua += '<span>' + (d === 1 || d % 5 === 0 ? d : '') + '</span>'; }
-      var pers = periodosNoMes(i, X.a, X.m).map(function (f) { var t = tipo(f.sit); return '<span class="pill ' + t + '">' + br(f.ini) + ' → ' + br(f.fim) + ' · ' + (dif(f.ini, f.fim) + 1) + ' dias' + (t === 'p' ? ' · ' + rotP(f).replace('Aguardando', 'aguardando') : '') + '</span>'; }).join('');
+      var pers = periodosNoMes(i, X.a, X.m).map(function (f) { var t = tipo(f.sit); return '<span class="pill ' + t + '">' + (t === 's' ? '💡 ' : '') + br(f.ini) + ' → ' + br(f.fim) + ' · ' + (dif(f.ini, f.fim) + 1) + ' dias' + (t === 'p' ? ' · ' + rotP(f).replace('Aguardando', 'aguardando') : t === 's' ? ' · sugestão' : '') + '</span>'; }).join('');
       o += '<button class="card" data-acao="pessoa" data-v="' + i + '" style="animation-delay:' + Math.min(k * 0.03, 0.4) + 's"><div class="top">' + avatar(i) + '<div style="min-width:0"><div class="nm">' + esc(nomeBonito(p.nome)) + '</div><div class="mt">' + esc(p.maq || p.cargo || '—') + '</div></div>' +
         (X.C.pessoas[i] ? '<span class="cf-badge" style="margin-left:auto">conflito</span>' : '') + '</div><div class="per">' + pers + '</div>' + linhaTira(turnoDe(i, iso(X.a, X.m, 1)) || '(sem turno)', tira, 'eu') + sobreHtml(X, i) + '<div class="lin"><span class="bd"></span><div class="regua">' + regua + '</div></div></button>';
     });
@@ -759,6 +775,7 @@ function vHoje() {
   var NP = diasProx(), agora = [], prox = [], limite = soma(HOJE, NP), tot = {}, fora = {};
   D.pessoas.forEach(function (p, i) { var t = turnoDe(i, HOJE) || '(sem turno)'; tot[t] = (tot[t] || 0) + 1; });
   D.ferias.forEach(function (f) {
+    if (f.sug) return; // sugestão não é saída: a aba Hoje mostra só o que está no Meu RH
     var t = turnoDe(f.p, HOJE) || '(sem turno)';
     if (f.ini <= HOJE && f.fim >= HOJE) { fora[t] = (fora[t] || 0) + 1; if (passa(f.p, t)) agora.push(f); }
     else if (f.ini > HOJE && f.ini <= limite && passa(f.p, turnoDe(f.p, f.ini) || '(sem turno)')) prox.push(f);
@@ -815,7 +832,7 @@ function vAno() {
   }).join('');
   var legB = ordemB.map(function (t) { return '<span><i style="background:' + corTurno(t) + '"></i>' + esc(nomeT(t)) + '</span>'; }).join('') +
     (meses.some(function (x) { return x.soCol; }) ? '<span><i class="col"></i>Só nas coletivas</span>' : '') +
-    '<span><b style="color:var(--bad)">⚠ nº</b> = turno acima do máximo ou conflito de máquina</span><span><b style="color:#B07800">⚠ nº</b> = precisa de OK</span>';
+    (comSug() ? '<span><i class="s"></i>Inclui ' + SUGS.length + (SUGS.length === 1 ? ' sugestão' : ' sugestões') + ' do líder</span>' : '') + '<span><b style="color:var(--bad)">⚠ nº</b> = turno acima do máximo ou conflito de máquina</span><span><b style="color:#B07800">⚠ nº</b> = precisa de OK</span>';
   var linhas = turnos.filter(function (t) { return !turnoSel || turnoSel === t; }).map(function (t) {
     var tds = '', tem = false;
     meses.forEach(function (x, m) {
@@ -839,14 +856,14 @@ function abrirFolha(html) { var f = document.getElementById('folha'); f.innerHTM
 function fecharFolha() { document.getElementById('veu').classList.remove('on'); document.body.style.overflow = ''; }
 function calMini(s, rot) { return '<div class="cal"><span>' + rot + '</span><b>' + (+s.slice(8)) + '</b></div>'; }
 function abrirPessoa(i) {
-  var p = D.pessoas[i], fs = feriasDe(i), ag = fs.filter(function (f) { return f.ini <= HOJE && f.fim >= HOJE; })[0], px = fs.filter(function (f) { return f.ini > HOJE; })[0];
+  var p = D.pessoas[i], fs = feriasDe(i), ag = fs.filter(function (f) { return !f.sug && f.ini <= HOJE && f.fim >= HOJE; })[0], px = fs.filter(function (f) { return !f.sug && f.ini > HOJE; })[0];
   var dest = ag ? '<div class="dest"><span class="ic">🌴</span><div>Desfrutando as férias<br><span style="font-weight:500;font-size:12px">retorno a partir de ' + dCurta(soma(ag.fim, 1)) + '<br>conforme a escala do turno</span></div><b>' + (dif(HOJE, ag.fim) + 1) + '</b><span style="font-size:11px">dias<br>restantes</span></div>'
     : px ? '<div class="dest"><span class="ic">✈️</span><div>Próximas férias<br><span style="font-weight:500;font-size:12px">' + dCurta(px.ini) + ' → ' + dCurta(px.fim) + '</span></div><b>' + dif(HOJE, px.ini) + '</b><span style="font-size:11px">dias<br>para sair</span></div>' : '';
   var trs = D.trocas.filter(function (x) { return x.p === i && x.ate >= HOJE; });
   var lista = fs.filter(function (f) { return f.fim >= soma(HOJE, -120); }).map(function (f) {
     var t = tipo(f.sit), st = f.ini <= HOJE && f.fim >= HOJE ? 'agora' : f.fim < HOJE ? 'passada' : 'futura';
-    var lb = st === 'agora' ? 'Agora' : st === 'passada' ? 'Desfrutada' : t === 'p' ? rotP(f) : 'Marcada';
-    return '<div class="perl ' + st + '">' + calMini(f.ini, MESES[+f.ini.slice(5, 7) - 1].slice(0, 3)) + '<div><div class="dt">' + dCurta(f.ini) + ' → ' + dCurta(f.fim) + '</div><span class="pill ' + (st === 'agora' ? 'agora' : st === 'passada' ? 'c' : t) + '">' + lb + '</span></div><div class="q"><b style="font-size:15px;color:var(--txt)">' + (dif(f.ini, f.fim) + 1) + '</b><br>dias</div></div>';
+    var lb = t === 's' ? '💡 ' + rotSug() : st === 'agora' ? 'Agora' : st === 'passada' ? 'Desfrutada' : t === 'p' ? rotP(f) : 'Marcada';
+    return '<div class="perl ' + st + '">' + calMini(f.ini, MESES[+f.ini.slice(5, 7) - 1].slice(0, 3)) + '<div><div class="dt">' + dCurta(f.ini) + ' → ' + dCurta(f.fim) + '</div><span class="pill ' + (t === 's' ? 's' : st === 'agora' ? 'agora' : st === 'passada' ? 'c' : t) + '">' + lb + '</span></div><div class="q"><b style="font-size:15px;color:var(--txt)">' + (dif(f.ini, f.fim) + 1) + '</b><br>dias</div></div>';
   }).join('');
   abrirFolha('<div class="fcab">' + avatar(i, 1) + '<div style="min-width:0"><h2>' + esc(nomeBonito(p.nome)) + '</h2><div class="mt">' + esc(p.cargo || '') + '</div></div><button class="fechar" data-acao="fechar" aria-label="Fechar">×</button></div><div class="fcorpo">' + dest +
     '<div class="info"><div><span>Turno</span><b>' + esc(nomeT(turnoDe(i, HOJE))) + '</b></div><div><span>Máquina/Posto</span><b>' + esc(maqTxt(p.maq) || '—') + '</b></div><div><span>Líder</span><b>' + esc(nomeBonito(p.lider) || '—') + '</b></div><div><span>Área</span><b>' + esc(p.area || '—') + '</b></div></div>' +
@@ -861,7 +878,7 @@ function abrirDia(d) {
     var g = grupos[t]; if (!g) return;
     corpo += '<div class="dgrp" style="display:flex;align-items:center;gap:6px">' + ponto(t, 8) + esc(nomeT(t)) + ' · ' + g.length + '</div>' + g.map(function (f) {
       var p = D.pessoas[f.p], cf = X.C.marca[f.p + '_' + d], t2 = tipo(f.sit);
-      return '<div class="dl" data-acao="pessoa" data-v="' + f.p + '">' + avatar(f.p) + '<div style="min-width:0;flex:1"><div style="font-weight:600">' + esc(nomeBonito(p.nome)) + '</div><div style="font-size:11px;color:var(--mut)">' + (p.maq ? esc(p.maq) + ' · ' : '') + 'retorno a partir de ' + dCurta(soma(f.fim, 1)) + '</div></div>' + (cf ? '<span class="cf-badge">conflito</span>' : '<span class="pill ' + t2 + '">' + (t2 === 'p' ? 'Aguardando' : t2 === 'c' ? 'Concluída' : 'Marcada') + '</span>') + '</div>';
+      return '<div class="dl" data-acao="pessoa" data-v="' + f.p + '">' + avatar(f.p) + '<div style="min-width:0;flex:1"><div style="font-weight:600">' + esc(nomeBonito(p.nome)) + '</div><div style="font-size:11px;color:var(--mut)">' + (p.maq ? esc(p.maq) + ' · ' : '') + 'retorno a partir de ' + dCurta(soma(f.fim, 1)) + '</div></div>' + (cf ? '<span class="cf-badge">conflito</span>' : '<span class="pill ' + t2 + '">' + (t2 === 's' ? '💡 Sugestão' : t2 === 'p' ? 'Aguardando' : t2 === 'c' ? 'Concluída' : 'Marcada') + '</span>') + '</div>';
     }).join('');
   });
   var tit = SEML[wd(s)].charAt(0).toUpperCase() + SEML[wd(s)].slice(1) + ', ' + d + ' de ' + MESES[mes].toLowerCase();
@@ -901,6 +918,7 @@ function render(anim) {
   document.getElementById('nav1').style.visibility = vista === 'hoje' ? 'hidden' : '';
   document.getElementById('l1b').style.display = vista === 'hoje' ? 'none' : '';
   document.getElementById('soL').style.display = vista === 'mes' ? '' : 'none';
+  document.getElementById('sgL').style.display = SUGS.length && vista !== 'hoje' ? '' : 'none';
   document.getElementById('agr').style.display = vista === 'mes' || vista === 'lista' ? '' : 'none';
   cada('#agr button', function (b) { b.classList.toggle('on', b.getAttribute('data-v') === agrupar); });
   var ts = ordemTurnos(vista === 'hoje' ? HOJE : iso(ano, mes, 1)).concat(['(sem turno)']);
@@ -978,7 +996,8 @@ var tBusca; document.getElementById('busca').addEventListener('input', function 
 function limparBusca() { var i = document.getElementById('busca'); i.value = ''; busca = ''; render(); }
 document.getElementById('bLimpa').addEventListener('click', function () { limparBusca(); document.getElementById('busca').focus(); });
 document.getElementById('busca').addEventListener('keydown', function (e) { if (e.key === 'Escape' && this.value) { e.stopPropagation(); limparBusca(); } });
-document.getElementById('so').checked = so; document.getElementById('av').checked = mostrarAv;
+document.getElementById('so').checked = so; document.getElementById('av').checked = mostrarAv; document.getElementById('sg').checked = incSug;
+document.getElementById('sg').addEventListener('change', function () { incSug = this.checked; try { localStorage.setItem('calFeriasSug', incSug ? '1' : '0'); } catch (x) {} aplicarSug(); render(); });
 document.getElementById('so').addEventListener('change', function () { so = this.checked; try { localStorage.setItem('calFeriasSo', so ? '1' : '0'); } catch (x) {} render(); });
 document.getElementById('av').addEventListener('change', function () { mostrarAv = avAberto = this.checked; try { localStorage.setItem('calFeriasAv', mostrarAv ? '1' : '0'); } catch (x) {} render(); });
 document.addEventListener('keydown', function (e) {
